@@ -1,0 +1,1 @@
+tar -cvf handin.tar --exclude='*__pycache__*' --exclude='*.pyc' --exclude='._*' --no-xattr models MCQ mytorch CTC
