@@ -117,7 +117,17 @@ class RNNPhonemeClassifier(object):
         # Pseudocode may exist in the write-up and/or lecture slides
         # WATCH out for off by 1 errors due to implementation decisions.
         
-        # TODO
+        for t in range(seq_len, 0, -1):
+            for l in range(self.num_layers-1 , -1, -1):
+                h_t = self.hiddens[t][l]
+                h_prev_l = self.hiddens[t][l-1] if l!= 0 else self.x[:, t-1, :]
+                h_prev_t = self.hiddens[t-1][l] 
+                delta = dh[l]
 
-        # return dh / batch_size
-        raise NotImplementedError
+                dx, dh_prev_t = self.rnn[l].backward(delta, h_t, h_prev_l, h_prev_t)
+
+                dh[l] = dh_prev_t
+                if l != 0:
+                    dh[l-1] += dx
+
+        return dh / batch_size
