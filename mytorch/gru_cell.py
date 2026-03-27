@@ -90,6 +90,11 @@ class GRUCell(object):
         # Add your code here.
         # Define your variables based on the writeup using the corresponding
         # names below.
+        self.r = self.r_act.forward(self.Wrx @ x + self.brx + self.Wrh @ h_prev_t + self.brh)
+        self.z = self.z_act.forward(self.Wzx @ x + self.bzx + self.Wzh @ h_prev_t + self.bzh)
+        self.r_help = self.Wnh @ h_prev_t + self.bnh
+        self.n = self.h_act.forward(self.Wnx @ x + self.bnx + self.r * self.r_help)
+        h_t = (1 - self.z) * self.n + self.z * h_prev_t
 
         assert self.x.shape == (self.d,)
         assert self.hidden.shape == (self.h,)
@@ -99,8 +104,7 @@ class GRUCell(object):
         assert self.n.shape == (self.h,)
         assert h_t.shape == (self.h,)  # h_t is the final output of you GRU cell.
 
-        # return h_t
-        raise NotImplementedError
+        return h_t
 
     def backward(self, delta):
         """GRU cell backward.
@@ -135,8 +139,56 @@ class GRUCell(object):
         # Make sure the shapes of the calculated dWs and dbs  match the
         # initalized shapes accordingly
 
+        # define dx and dh_prev_t
+        dx = np.zeros((self.d))
+        dh_prev_t = np.zeros((self.h))
+
+        x = self.x.reshape(-1, 1)
+        h_prev = self.hidden.reshape(-1, 1)
+
+        # handling h equation
+        dz = delta * (-self.n + self.hidden)
+        dz = self.z_act.backward(dz).reshape(-1, 1)
+
+        dn = delta * (1 - self.z)
+        dn = self.h_act.backward(dn, state=self.n).reshape(-1, 1)
+
+        dh_prev_t += delta * self.z
+
+        # handling n equation
+        self.dWnx += dn @ x.T
+        self.dbnx += dn.flatten()
+
+        self.dWnh += (dn * self.r.reshape(-1, 1)) @ h_prev.T
+        self.dbnh += dn.flatten() * self.r
+
+        dx +=  (dn.T @ self.Wnx).flatten()
+        dh_prev_t += ((dn.T * self.r.reshape(1, -1)) @ self.Wnh).flatten()
+
+        dr = dn.flatten() * self.r_help
+        dr = self.r_act.backward(dr).reshape(-1,1)
+
+        # handling z equation
+        self.dWzx += dz @ x.T
+        self.dbzx += dz.flatten()
+
+        self.dWzh += dz @ h_prev.T
+        self.dbzh += dz.flatten()
+
+        dx +=  (dz.T @ self.Wzx).flatten()
+        dh_prev_t += (dz.T @ self.Wzh).flatten()
+
+        # handling r equation 
+        self.dWrx += dr @ x.T
+        self.dbrx += dr.flatten()
+
+        self.dWrh += dr @ h_prev.T
+        self.dbrh += dr.flatten()
+
+        dx +=  (dr.T @ self.Wrx).flatten()
+        dh_prev_t += (dr.T @ self.Wrh).flatten()
+
         assert dx.shape == (self.d,)
         assert dh_prev_t.shape == (self.h,)
 
-        # return dx, dh_prev_t
-        raise NotImplementedError
+        return dx, dh_prev_t
