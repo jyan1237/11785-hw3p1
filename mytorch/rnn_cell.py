@@ -94,17 +94,17 @@ class RNNCell(object):
         """
         batch_size = delta.shape[0]
         # 0) Done! Step backward through the tanh activation function.
-        dz = None  # TODO
+        dz = self.activation.backward(delta, state=h_t) 
 
         # 1) Compute the averaged gradients of the weights and biases
-        self.dW_ih += None  # TODO
-        self.dW_hh += None  # TODO
-        self.db_ih += None  # TODO
-        self.db_hh += None  # TODO
+        self.dW_ih += dz.T @ h_prev_l / batch_size 
+        self.dW_hh += dz.T @ h_prev_t / batch_size 
+        self.db_ih += np.sum(dz, axis=0) / batch_size
+        self.db_hh += np.sum(dz, axis=0) / batch_size
 
         # 2) Compute dx, dh_prev_t
-        dx = None  # TODO
-        dh_prev_t = None  # TODO
+        dx = dz @ self.W_ih 
+        dh_prev_t = dz @ self.W_hh
 
         # 3) Return dx, dh_prev_t
-        raise NotImplementedError
+        return dx, dh_prev_t
