@@ -41,20 +41,21 @@ class CTC(object):
             extended_symbols.append(self.BLANK)
 
         N = len(extended_symbols)
-        
-        # -------------------------------------------->
-        # TODO
-        # <---------------------------------------------
 
         # -------------------------------------------->
-        # TODO: Develop the logic for `skip_connect`.
+        # Develop the logic for `skip_connect`.
         # This array should flag positions where a direct transition, bypassing an adjacent
         # blank or a repeated label, is permissible according to CTC rules.
         # Consider the conditions under which a 'skip' is allowed in the extended symbol sequence.
         # <---------------------------------------------
+        skip_connect = []
+        for i in range(N):
+            if i % 2 == 1 and i >= 2 and extended_symbols[i-2] != extended_symbols[i]:
+                skip_connect.append(1)
+            else:
+                skip_connect.append(0)
 
-        # return extended_symbols, skip_connect
-        raise NotImplementedError
+        return extended_symbols, skip_connect
 
     def get_forward_probs(self, logits, extended_symbols, skip_connect):
         """Compute forward probabilities.
@@ -84,23 +85,31 @@ class CTC(object):
         alpha = np.zeros(shape=(T, S))
 
         # -------------------------------------------->
-        # TODO: Initialize the starting probabilities for the first time step.
-		# TODO: Intialize alpha[0][0]
-		# TODO: Intialize alpha[0][1]
+        # Initialize the starting probabilities for the first time step.
+		# Intialize alpha[0][0]
+		# Intialize alpha[0][1]
         # This involves setting the initial values for the first two extended symbols.
-        #
-		# TODO: Compute all values for alpha[t][sym] where 1 <= t < T and 1 <= sym < S (assuming zero-indexing)
-        # TODO: Implement the iterative computation for `alpha` values across all subsequent time steps.
+        alpha[0, 0] = logits[0, extended_symbols[0]]
+        alpha[0, 1] = logits[0, extended_symbols[1]]
+
+		# Compute all values for alpha[t][sym] where 1 <= t < T and 1 <= sym < S (assuming zero-indexing)
+        # Implement the iterative computation for `alpha` values across all subsequent time steps.
         # IMP: Remember to check for skipConnect when calculating alpha
         # For each `alpha[t][sym]`, consider the possible paths from the previous time step `t-1`.
         # These paths typically include transitions from the same symbol at `t-1`, and the preceding symbol at `t-1`.
         # Critically, incorporate the `skipConnect` information to allow for additional transitions
         # from a symbol two positions prior in the extended sequence, under specific CTC rules.
         # Ensure proper indexing and multiplication with the relevant logit for the current state.
+        for t in range(1, T):
+            for sym in range(S):
+                alpha[t, sym] = alpha[t-1, sym] + alpha[t-1, sym-1]
+                if skip_connect[sym] == 1:
+                    alpha[t, sym] += alpha[t-1, sym-2]
+
+                alpha[t, sym] += logits[t, extended_symbols[sym]]
         # <---------------------------------------------
 
-        # return alpha
-        raise NotImplementedError
+        return alpha
 
     def get_backward_probs(self, logits, extended_symbols, skip_connect):
         """Compute backward probabilities.
