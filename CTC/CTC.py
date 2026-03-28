@@ -102,11 +102,14 @@ class CTC(object):
         # Ensure proper indexing and multiplication with the relevant logit for the current state.
         for t in range(1, T):
             for sym in range(S):
-                alpha[t, sym] = alpha[t-1, sym] + alpha[t-1, sym-1]
-                if skip_connect[sym] == 1:
+                alpha[t, sym] = alpha[t-1, sym] 
+                if sym > 0:
+                    alpha[t, sym] += alpha[t-1, sym-1]
+
+                if sym >= 2 and skip_connect[sym] == 1:
                     alpha[t, sym] += alpha[t-1, sym-2]
 
-                alpha[t, sym] += logits[t, extended_symbols[sym]]
+                alpha[t, sym] *= logits[t, extended_symbols[sym]]
         # <---------------------------------------------
 
         return alpha
@@ -138,24 +141,30 @@ class CTC(object):
         beta = np.zeros(shape=(T, S))
 
         # -------------------------------------------->
-        # TODO: Establish the terminating probabilities at the last time step.
+        # Establish the terminating probabilities at the last time step.
         # This typically involves setting initial `beta` values for the last two extended symbols.
-        #
-        # TODO: Proceed with backward iterative computation for `beta` values through time.
+        beta[-1, -2] = 1.0
+        beta[-1, -1] = 1.0
+
+        # Proceed with backward iterative computation for `beta` values through time.
         # For each `beta[t][sym]`, determine the contributions from future states at time `t+1`.
         # These contributions usually involve the same symbol at `t+1` and the next symbol at `t+1`.
         # Integrate the `skipConnect` logic to account for transitions from states
         # two positions ahead in the extended sequence, where allowed by CTC rules.
         # Careful consideration of indexing is necessary to prevent out-of-bounds access.
         # Each computed beta value should be adjusted by the current symbol's logit at the current time step.
+        for t in range(T-2, -1, -1):
+            for sym in range(S-1, -1 , -1):
+                beta[t, sym] = beta[t+1, sym] * logits[t + 1, extended_symbols[sym]]
+
+                if sym + 1 < S:
+                    beta[t, sym] += beta[t+1, sym+1] * logits[t + 1, extended_symbols[sym+1]]
+
+                if sym + 2 < S and skip_connect[sym + 2] == 1:
+                    beta[t, sym] += beta[t+1, sym+2] * logits[t + 1, extended_symbols[sym+2]] 
         # <--------------------------------------------
 
-        # -------------------------------------------->
-        # TODO
-        # <--------------------------------------------
-
-        # return beta
-        raise NotImplementedError
+        return beta
 
     def get_posterior_probs(self, alpha, beta):
         """Compute posterior probabilities.
@@ -180,18 +189,22 @@ class CTC(object):
         sumgamma = np.zeros((T,))
 
         # -------------------------------------------->
-        # TODO: Calculate the unnormalized joint probability for each (time, symbol) pair.
+        # Calculate the unnormalized joint probability for each (time, symbol) pair.
         # This involves combining the `alpha` and `beta` probabilities at each point.
-        #
-        # TODO: Normalize these joint probabilities at each time step.
+        gamma = alpha * beta
+
+        # Normalize these joint probabilities at each time step.
         # For each time step, sum all unnormalized joint probabilities across all extended symbols.
         # Then, divide each individual unnormalized joint probability by this sum to ensure
         # that the posteriors for a given time step sum to one.
         # Remember to add a small numerical stability constant (epsilon) to the denominator.
+        eps = 1e-7
+        sumgamma = np.sum(gamma, axis=1, keepdims=True)
+        gamma = gamma / (sumgamma + eps)
+
         # <---------------------------------------------
 
-        # return gamma
-        raise NotImplementedError
+        return gamma
 
 
 class CTCLoss(object):
@@ -275,19 +288,25 @@ class CTCLoss(object):
             #     Take an average over all batches and return final result
             # <---------------------------------------------
 
-            # -------------------------------------------->
-            # TODO
-            # <---------------------------------------------
-            pass
+            trunc_targets = target[batch_itr, :target_lengths[batch_itr]]
+            trunc_logits = logits[:input_lengths[batch_itr], batch_itr]
+
+            extended_symbols, skip_connect = self.ctc.extend_target_with_blank(trunc_targets)
+            alpha = self.ctc.get_forward_probs(trunc_logits, extended_symbols, skip_connect)
+            beta = self.ctc.get_backward_probs(trunc_logits, extended_symbols, skip_connect)
+            gamma = self.ctc.get_posterior_probs(alpha, beta)
+            
+            total_loss[batch_itr] = np.sum(-gamma * np.log(trunc_logits[:, extended_symbols]))
+            self.extended_symbols.append(extended_symbols)
+            self.gammas.append(gamma)
 
         total_loss = np.sum(total_loss) / B
 
-        # return total_loss
-        raise NotImplementedError
+        return total_loss
 
     def backward(self):
         """
-        CTC loss backard
+        CTC loss backward
 
         Calculate the gradients w.r.t the parameters and return the derivative 
         w.r.t the inputs, xt and ht, to the cell.
@@ -328,14 +347,13 @@ class CTCLoss(object):
             #     Extend target sequence with blank
             extended, _ = self.ctc.extend_target_with_blank(target)
             #     Compute derivative of divergence and store them in dY
-            
-            # <---------------------------------------------
-            
+            gamma = self.gammas[batch_itr]
 
-            # -------------------------------------------->
-            # TODO
-            # <---------------------------------------------
-            pass
+            sum_gamma = np.full_like(logit, 0)
+            for i in range(C):
+                sum_gamma[:, i] = np.sum(gamma[:, extended == i], axis=1)
 
-        # return dY
-        raise NotImplementedError
+            dY[:, batch_itr, :] = (-1/logit) * sum_gamma
+            # <---------------------------------------------
+
+        return dY
